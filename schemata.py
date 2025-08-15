@@ -3,6 +3,7 @@ from sqlmodel import SQLModel, Field, Relationship
 from sqlalchemy import Index
 from typing import Optional, List
 from sqlalchemy import UniqueConstraint
+import enum
 
 # ---------------------------
 # User
@@ -12,7 +13,11 @@ class UserBase(SQLModel):
     email: str = Field(unique=True, nullable=False)
     password_hash: str
 
+#create
+class UserCreate(UserBase):
+    pass
 
+#table
 class User(UserBase, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
 
