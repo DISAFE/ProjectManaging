@@ -32,7 +32,7 @@ async def sign_up(
     :return: {"success": "ok"}
     """
 
-@router.post("/login", response=status.HTTP.)
+@router.post("/login", responses=status.HTTP_200_OK)
 async def login(
         email: Annotated[EmailStr, Body()],
         password: Annotated[str, Body()],
