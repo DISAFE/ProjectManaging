@@ -2,15 +2,22 @@ from pydantic import EmailStr
 from sqlmodel import SQLModel, Field, Relationship
 from sqlalchemy import Index
 from typing import Optional, List
-from sqlalchemy import UniqueConstraint
-import enum
+from datetime import datetime, timezone
+from enum import Enum
+
+# ---------------------------
+# Role
+# ---------------------------
+class Role(str, Enum):
+    ADMIN = "admin"
+    MEMBER = "member"
 
 # ---------------------------
 # User
 # ---------------------------
 class UserBase(SQLModel):
     username: str = Field(index=True, unique=True, nullable=False)
-    email: str = Field(unique=True, nullable=False)
+    email: EmailStr = Field(unique=True, nullable=False)
     password_hash: str
 
 #create
@@ -25,6 +32,7 @@ class User(UserBase, table=True):
     tasks_assigned: List["Task"] = Relationship(back_populates="assignee")
     comments: List["Comment"] = Relationship(back_populates="author")
     activity_logs: List["ActivityLog"] = Relationship(back_populates="user")
+    token: "RT" = Relationship(back_populates="user")
 
 # ---------------------------
 # Project
@@ -46,7 +54,7 @@ class Project(ProjectBase, table=True):
 # ProjectMember
 # ---------------------------
 class ProjectMemberBase(SQLModel):
-    role: Optional[str] = Field(default=None, description="enum: admin/member")
+    role: Role = Field(default=Role.MEMBER, description="enum: admin/member")
 
 
 class ProjectMember(ProjectMemberBase, table=True):
@@ -90,7 +98,7 @@ class Task(TaskBase, table=True):
 # ---------------------------
 class CommentBase(SQLModel):
     content: str
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class Comment(CommentBase, table=True):
@@ -111,7 +119,7 @@ class ActivityLogBase(SQLModel):
     action: str
     target_type: str = Field(description="enum: project/task/comment")
     target_id: Optional[int] = None
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class ActivityLog(ActivityLogBase, table=True):
@@ -121,3 +129,13 @@ class ActivityLog(ActivityLogBase, table=True):
     user: Optional[User] = Relationship(back_populates="activity_logs")
 
     __table_args__ = (Index("ix_UserId", "user_id", "target_id"),)
+
+#refresh_token
+class RT(SQLModel, table=True):
+    id: int = Field(primary_key=True, default=None)
+    token: str = Field()
+    user_id: int = Field(foreign_key="user.id")
+
+    user: User = Relationship(back_populates="token")
+
+    __table_args__= (Index("ix_Token", "token"),)
