@@ -1,10 +1,12 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from routers import auth
+from database import create_table, drop_table
 
 @asynccontextmanager
-def lifespan(app: FastAPI):
-
+async def lifespan(app: FastAPI):
+    drop_table()
+    create_table()
     yield
 
 

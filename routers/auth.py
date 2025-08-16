@@ -1,12 +1,20 @@
-from fastapi import APIRouter, status, Depends, Body
+from http.client import responses
+
+from fastapi import APIRouter, status, Depends, Body, HTTPException, Response
 from typing import Annotated
-
 from pydantic import EmailStr
-
-from schemata import UserCreate
+from schemata import UserCreate, User, RT
 import jwt
 import bcrypt
 from database import SessionDep
+from datetime import datetime, timezone, timedelta
+
+#bcrypt
+SALT = bcrypt.gensalt()
+
+#jwt
+ALGORITHM = "HS256"
+SECRET_KEY = "BuffyTest320@!"
 
 router = APIRouter(
     prefix="/auth",
@@ -14,41 +22,79 @@ router = APIRouter(
     dependencies=[],
 )
 
-@router.post("/signup", responses=status.HTTP_201_CREATED)
+@router.post("/signup", status_code=status.HTTP_201_CREATED)
 async def sign_up(
         usercreate: Annotated[UserCreate, Body()],
         session: SessionDep
 ):
-    """
-    :param usercreate: UserCreate model
-    :param session: Database session
 
-    Steps:
-    1. check if usercreate.email or usercreate.username exists in DB
-        True :raise status.HTTP_409_CONFLICT
-    2. hash usercreate.password
-    3. convert usercreate to user(User)
-    4. create new User Record in DB
-    :return: {"success": "ok"}
-    """
+    user_db = session.query(User).filter(User.email == usercreate.email).first()
+    if user_db is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Invalid email")
 
-@router.post("/login", responses=status.HTTP_200_OK)
+    user_db = session.query(User).filter(User.username == usercreate.username).first()
+    if user_db is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Invalid username")
+
+    usercreate.password_hash = bcrypt.hashpw(usercreate.password_hash.encode(), SALT).decode()
+
+    user = User.model_validate(usercreate)
+
+    session.add(user)
+    session.commit()
+
+    return {"created": "ok"}
+
+
+@router.post("/login", status_code=status.HTTP_200_OK)
 async def login(
         email: Annotated[EmailStr, Body()],
         password: Annotated[str, Body()],
-        session: SessionDep
+        session: SessionDep,
+        response: Response,
 ):
-    """
-    :param email:
-    :param password:
-    :param session: Database session
+    #verify
+    user_db: User = session.query(User).filter(User.email == email).first()
+    if user_db is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email")
 
-    steps:
-    1. Query the User table for a record matching the email
-        :except status.HTTP_404_NOT_FOUND, :detail "email is not exist"
-    2. verify User.password = password by bcrypt
-        :except status.HTTP_404_NOT_FOUND :detail "password is wrong"
-    3. make payload
-    4. generate token
-    :return: token(by header)
-    """
+    if not bcrypt.checkpw(password.encode(), user_db.password_hash.encode()):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid password")
+
+    #refresh_token
+    exp = (datetime.now(timezone.utc) + timedelta(days=7)).timestamp()
+    exp = int(exp)
+    payload = {
+        "id": user_db.id,
+        "exp": exp
+    }
+    refresh_token = jwt.encode(payload=payload, algorithm=ALGORITHM, key=SECRET_KEY)
+    response.set_cookie(
+        key="refresh_token",
+        value=refresh_token,
+        max_age=604_800,
+        httponly=True,
+    )
+
+    rt = RT()
+    rt.token = refresh_token
+    rt.user_id = user_db.id
+    session.add(rt)
+    session.commit()
+
+    #access_token
+    exp = (datetime.now(timezone.utc) + timedelta(minutes=5)).timestamp()
+    exp = int(exp)
+    payload = {
+        "id": user_db.id,
+        "exp": exp,
+    }
+    access_token = jwt.encode(payload=payload, algorithm=ALGORITHM, key=SECRET_KEY)
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        max_age=180,
+        httponly=True,
+        samesite="lax",
+    )
+    return {"success": "ok"}
